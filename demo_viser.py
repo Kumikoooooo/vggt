@@ -344,9 +344,9 @@ def main():
     print("Initializing and loading VGGT model...")
     # model = VGGT.from_pretrained("facebook/VGGT-1B")
 
-    model = VGGT()
-    _URL = "https://huggingface.co/facebook/VGGT-1B/resolve/main/model.pt"
-    model.load_state_dict(torch.hub.load_state_dict_from_url(_URL))
+    model = VGGT().load_pretrained(
+        checkpoint_path=os.environ.get("VGGT_WEIGHTS_PATH")
+    )
 
     model.eval()
     model = model.to(device)
