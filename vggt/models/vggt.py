@@ -4,6 +4,8 @@
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 
+from pathlib import Path
+
 import torch
 import torch.nn as nn
 from huggingface_hub import PyTorchModelHubMixin  # used for model hub
@@ -15,6 +17,8 @@ from vggt.heads.track_head import TrackHead
 
 
 class VGGT(nn.Module, PyTorchModelHubMixin):
+    DEFAULT_WEIGHTS_URL = "https://huggingface.co/facebook/VGGT-1B/resolve/main/model.pt"
+
     def __init__(self, img_size=518, patch_size=14, embed_dim=1024,
                  enable_camera=True, enable_point=True, enable_depth=True, enable_track=True):
         super().__init__()
@@ -95,3 +99,23 @@ class VGGT(nn.Module, PyTorchModelHubMixin):
 
         return predictions
 
+    def load_pretrained(self, checkpoint_path: str | Path = None, strict: bool = True):
+        """
+        Load pretrained weights from a local file path or from the default VGGT URL.
+
+        Args:
+            checkpoint_path (str | Path, optional): Local checkpoint file path. If not provided,
+                weights are downloaded from :attr:`DEFAULT_WEIGHTS_URL`.
+            strict (bool): Whether to strictly enforce that the keys in `state_dict`
+                match the keys returned by this module's `state_dict` function.
+
+        Returns:
+            VGGT: self
+        """
+        if checkpoint_path is not None:
+            state_dict = torch.load(Path(checkpoint_path), map_location="cpu", weights_only=True)
+        else:
+            state_dict = torch.hub.load_state_dict_from_url(self.DEFAULT_WEIGHTS_URL, map_location="cpu")
+
+        self.load_state_dict(state_dict, strict=strict)
+        return self

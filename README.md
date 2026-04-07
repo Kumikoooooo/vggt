@@ -71,9 +71,10 @@ device = "cuda" if torch.cuda.is_available() else "cpu"
 # bfloat16 is supported on Ampere GPUs (Compute Capability 8.0+) 
 dtype = torch.bfloat16 if torch.cuda.get_device_capability()[0] >= 8 else torch.float16
 
-# Initialize the model and load the pretrained weights.
-# This will automatically download the model weights the first time it's run, which may take a while.
-model = VGGT.from_pretrained("facebook/VGGT-1B").to(device)
+# Initialize the model and load pretrained weights from a local file path.
+# If checkpoint_path is None, VGGT will fallback to downloading from Hugging Face.
+checkpoint_path = "/path/to/model.pt"  # e.g. weights/model.pt
+model = VGGT().load_pretrained(checkpoint_path=checkpoint_path).to(device)
 
 # Load and preprocess example images (replace with your own image paths)
 image_names = ["path/to/imageA.png", "path/to/imageB.png", "path/to/imageC.png"]  
@@ -88,9 +89,13 @@ with torch.no_grad():
 The model weights will be automatically downloaded from Hugging Face. If you encounter issues such as slow loading, you can manually download them [here](https://huggingface.co/facebook/VGGT-1B/blob/main/model.pt) and load, or:
 
 ```python
-model = VGGT()
-_URL = "https://huggingface.co/facebook/VGGT-1B/resolve/main/model.pt"
-model.load_state_dict(torch.hub.load_state_dict_from_url(_URL))
+model = VGGT().load_pretrained(checkpoint_path="/path/to/model.pt")
+```
+
+`demo_gradio.py` and `demo_viser.py` also support setting a local checkpoint path through:
+
+```bash
+export VGGT_WEIGHTS_PATH=/path/to/model.pt
 ```
 
 ## Detailed Usage
