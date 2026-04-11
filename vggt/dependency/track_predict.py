@@ -20,6 +20,7 @@ def predict_tracks(
     max_points_num=163840,
     fine_tracking=True,
     complete_non_vis=True,
+    tracker_model_path=None,
 ):
     """
     Predict tracks for the given images and masks.
@@ -53,7 +54,7 @@ def predict_tracks(
 
     device = images.device
     dtype = images.dtype
-    tracker = build_vggsfm_tracker().to(device, dtype)
+    tracker = build_vggsfm_tracker(model_path=tracker_model_path).to(device, dtype)
 
     # Find query frames
     query_frame_indexes = generate_rank_by_dino(images, query_frame_num=query_frame_num, device=device)
