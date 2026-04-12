@@ -42,6 +42,18 @@ from vggt.dependency.np_to_pycolmap import batch_np_matrix_to_pycolmap, batch_np
 def parse_args():
     parser = argparse.ArgumentParser(description="VGGT Demo")
     parser.add_argument("--scene_dir", type=str, required=True, help="Directory containing the scene images")
+    parser.add_argument(
+        "--checkpoint_path",
+        type=str,
+        default=None,
+        help="Local VGGT checkpoint path (.pt). If set, no network download is needed.",
+    )
+    parser.add_argument(
+        "--tracker_checkpoint_path",
+        type=str,
+        default=None,
+        help="Local VGGSfM tracker checkpoint path (.pt), used when --use_ba is enabled.",
+    )
     parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
     parser.add_argument("--use_ba", action="store_true", default=False, help="Use BA for reconstruction")
     ######### BA parameters #########
@@ -111,8 +123,17 @@ def demo_fn(args):
 
     # Run VGGT for camera and depth estimation
     model = VGGT()
-    _URL = "https://huggingface.co/facebook/VGGT-1B/resolve/main/model.pt"
-    model.load_state_dict(torch.hub.load_state_dict_from_url(_URL))
+    checkpoint_path = args.checkpoint_path or os.environ.get("VGGT_WEIGHTS_PATH", None)
+    if checkpoint_path is not None:
+        checkpoint_path = os.path.expanduser(checkpoint_path)
+        if not os.path.exists(checkpoint_path):
+            raise FileNotFoundError(f"Checkpoint not found: {checkpoint_path}")
+        print(f"Loading local checkpoint from: {checkpoint_path}")
+        model.load_state_dict(torch.load(checkpoint_path, map_location="cpu"))
+    else:
+        _URL = "https://huggingface.co/facebook/VGGT-1B/resolve/main/model.pt"
+        print(f"Loading checkpoint from URL: {_URL}")
+        model.load_state_dict(torch.hub.load_state_dict_from_url(_URL))
     model.eval()
     model = model.to(device)
     print(f"Model loaded")
@@ -161,6 +182,7 @@ def demo_fn(args):
                 query_frame_num=args.query_frame_num,
                 keypoint_extractor="aliked+sp",
                 fine_tracking=args.fine_tracking,
+                tracker_model_path=args.tracker_checkpoint_path,
             )
 
             torch.cuda.empty_cache()

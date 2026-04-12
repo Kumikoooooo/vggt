@@ -5,6 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 
 import logging
+import os
 import warnings
 from typing import Dict, List, Optional, Tuple, Union
 
@@ -39,9 +40,15 @@ def build_vggsfm_tracker(model_path=None):
     tracker = TrackerPredictor()
 
     if model_path is None:
+        model_path = os.environ.get("VGGSFM_TRACKER_PATH", None)
+
+    if model_path is None:
         default_url = "https://huggingface.co/facebook/VGGSfM/resolve/main/vggsfm_v2_tracker.pt"
         tracker.load_state_dict(torch.hub.load_state_dict_from_url(default_url))
     else:
+        model_path = os.path.expanduser(model_path)
+        if not os.path.exists(model_path):
+            raise FileNotFoundError(f"VGGSfM tracker checkpoint not found: {model_path}")
         tracker.load_state_dict(torch.load(model_path))
 
     tracker.eval()
