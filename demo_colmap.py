@@ -42,6 +42,18 @@ from vggt.dependency.np_to_pycolmap import batch_np_matrix_to_pycolmap, batch_np
 def parse_args():
     parser = argparse.ArgumentParser(description="VGGT Demo")
     parser.add_argument("--scene_dir", type=str, required=True, help="Directory containing the scene images")
+    parser.add_argument(
+        "--checkpoint_path",
+        type=str,
+        default=None,
+        help="Local VGGT checkpoint path (.pt). If set, no network download is needed.",
+    )
+    parser.add_argument(
+        "--tracker_checkpoint_path",
+        type=str,
+        default=None,
+        help="Local VGGSfM tracker checkpoint path (.pt), used when --use_ba is enabled.",
+    )
     parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
     parser.add_argument("--use_ba", action="store_true", default=False, help="Use BA for reconstruction")
     ######### BA parameters #########
@@ -54,10 +66,28 @@ def parse_args():
     parser.add_argument("--query_frame_num", type=int, default=8, help="Number of frames to query")
     parser.add_argument("--max_query_pts", type=int, default=4096, help="Maximum number of query points")
     parser.add_argument(
+        "--keypoint_extractor",
+        type=str,
+        default="aliked+sp",
+        help="Keypoint extractors for BA tracking, e.g. 'aliked+sp', 'sift', 'sp'.",
+    )
+    parser.add_argument(
         "--fine_tracking", action="store_true", default=True, help="Use fine tracking (slower but more accurate)"
     )
     parser.add_argument(
         "--conf_thres_value", type=float, default=5.0, help="Confidence threshold value for depth filtering (wo BA)"
+    )
+    parser.add_argument(
+        "--img_load_resolution",
+        type=int,
+        default=1024,
+        help="Image loading resolution before VGGT inference (square). Lower to reduce memory.",
+    )
+    parser.add_argument(
+        "--vggt_resolution",
+        type=int,
+        default=518,
+        help="Input resolution used by VGGT backbone. Lower to reduce memory.",
     )
     return parser.parse_args()
 
@@ -111,8 +141,17 @@ def demo_fn(args):
 
     # Run VGGT for camera and depth estimation
     model = VGGT()
-    _URL = "https://huggingface.co/facebook/VGGT-1B/resolve/main/model.pt"
-    model.load_state_dict(torch.hub.load_state_dict_from_url(_URL))
+    checkpoint_path = args.checkpoint_path or os.environ.get("VGGT_WEIGHTS_PATH", None)
+    if checkpoint_path is not None:
+        checkpoint_path = os.path.expanduser(checkpoint_path)
+        if not os.path.exists(checkpoint_path):
+            raise FileNotFoundError(f"Checkpoint not found: {checkpoint_path}")
+        print(f"Loading local checkpoint from: {checkpoint_path}")
+        model.load_state_dict(torch.load(checkpoint_path, map_location="cpu"))
+    else:
+        _URL = "https://huggingface.co/facebook/VGGT-1B/resolve/main/model.pt"
+        print(f"Loading checkpoint from URL: {_URL}")
+        model.load_state_dict(torch.hub.load_state_dict_from_url(_URL))
     model.eval()
     model = model.to(device)
     print(f"Model loaded")
@@ -126,8 +165,8 @@ def demo_fn(args):
 
     # Load images and original coordinates
     # Load Image in 1024, while running VGGT with 518
-    vggt_fixed_resolution = 518
-    img_load_resolution = 1024
+    vggt_fixed_resolution = args.vggt_resolution
+    img_load_resolution = args.img_load_resolution
 
     images, original_coords = load_and_preprocess_images_square(image_path_list, img_load_resolution)
     images = images.to(device)
@@ -159,8 +198,9 @@ def demo_fn(args):
                 masks=None,
                 max_query_pts=args.max_query_pts,
                 query_frame_num=args.query_frame_num,
-                keypoint_extractor="aliked+sp",
+                keypoint_extractor=args.keypoint_extractor,
                 fine_tracking=args.fine_tracking,
+                tracker_model_path=args.tracker_checkpoint_path,
             )
 
             torch.cuda.empty_cache()
@@ -239,6 +279,19 @@ def demo_fn(args):
         shift_point2d_to_original_res=True,
         shared_camera=shared_camera,
     )
+
+    num_cameras = len(reconstruction.cameras)
+    num_images = len(reconstruction.images)
+    num_points = len(reconstruction.points3D)
+    print(
+        f"Reconstruction summary: cameras={num_cameras}, images={num_images}, "
+        f"sparse_points={num_points}"
+    )
+    if num_points == 0:
+        print(
+            "WARNING: sparse_points=0. 3DGS initialization will fail unless you regenerate "
+            "with stronger tracking/BA settings."
+        )
 
     print(f"Saving reconstruction to {args.scene_dir}/sparse")
     sparse_reconstruction_dir = os.path.join(args.scene_dir, "sparse")

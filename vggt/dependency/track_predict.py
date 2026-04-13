@@ -20,6 +20,7 @@ def predict_tracks(
     max_points_num=163840,
     fine_tracking=True,
     complete_non_vis=True,
+    tracker_model_path=None,
 ):
     """
     Predict tracks for the given images and masks.
@@ -53,10 +54,15 @@ def predict_tracks(
 
     device = images.device
     dtype = images.dtype
-    tracker = build_vggsfm_tracker().to(device, dtype)
+    tracker = build_vggsfm_tracker(model_path=tracker_model_path).to(device, dtype)
 
-    # Find query frames
-    query_frame_indexes = generate_rank_by_dino(images, query_frame_num=query_frame_num, device=device)
+    # Find query frames.
+    # If query_frame_num covers all frames, skip DINO ranking (which requires torch.hub network access).
+    num_frames = images.shape[0]
+    if query_frame_num >= num_frames:
+        query_frame_indexes = list(range(num_frames))
+    else:
+        query_frame_indexes = generate_rank_by_dino(images, query_frame_num=query_frame_num, device=device)
 
     # Add the first image to the front if not already present
     if 0 in query_frame_indexes:
