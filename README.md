@@ -187,19 +187,26 @@ We also support exporting VGGT's predictions directly to COLMAP format, by:
 
 ```bash 
 # Feedforward prediction only
-python demo_colmap.py --scene_dir=/YOUR/SCENE_DIR/ 
+python demo_colmap.py --scene_dir=/YOUR/SCENE_DIR/ --input_type=images
+
+# Sample a fixed number of frames from a video into /YOUR/SCENE_DIR/images, then run reconstruction
+python demo_colmap.py --scene_dir=/YOUR/SCENE_DIR/ --input_type=video --video_path=/YOUR/PATH/TO/VIDEO.mp4 --video_num_frames=30
+
+# If /YOUR/SCENE_DIR/images already has files and you want to replace them with sampled video frames
+python demo_colmap.py --scene_dir=/YOUR/SCENE_DIR/ --input_type=video --video_path=/YOUR/PATH/TO/VIDEO.mp4 --video_num_frames=30 --overwrite_images_from_video
 
 # With bundle adjustment
-python demo_colmap.py --scene_dir=/YOUR/SCENE_DIR/ --use_ba
+python demo_colmap.py --scene_dir=/YOUR/SCENE_DIR/ --input_type=images --use_ba
 
 # Run with bundle adjustment using reduced parameters for faster processing
 # Reduces max_query_pts from 4096 (default) to 2048 and query_frame_num from 8 (default) to 5
 # Trade-off: Faster execution but potentially less robust reconstruction in complex scenes (you may consider setting query_frame_num equal to your total number of images) 
 # See demo_colmap.py for additional bundle adjustment configuration options
-python demo_colmap.py --scene_dir=/YOUR/SCENE_DIR/ --use_ba --max_query_pts=2048 --query_frame_num=5
+python demo_colmap.py --scene_dir=/YOUR/SCENE_DIR/ --input_type=images --use_ba --max_query_pts=2048 --query_frame_num=5
 ```
 
 Please ensure that the images are stored in `/YOUR/SCENE_DIR/images/`. This folder should contain only the images. Check the examples folder for the desired data structure. 
+Set `--input_type=images` to use existing files in `/YOUR/SCENE_DIR/images/`; set `--input_type=video` to sample `--video_num_frames` from `--video_path` into this folder before running VGGT.
 
 The reconstruction result (camera parameters and 3D points) will be automatically saved under `/YOUR/SCENE_DIR/sparse/` in the COLMAP format, such as:
 

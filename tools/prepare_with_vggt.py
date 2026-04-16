@@ -37,6 +37,30 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Use VGGT to prepare COLMAP files for 3DGS.")
     parser.add_argument("--dataset", type=Path, required=True, help="Image-only dataset dir, or dir containing images/.")
     parser.add_argument(
+        "--input-type",
+        type=str,
+        choices=["images", "video"],
+        default="images",
+        help="Input source. 'images' reads dataset images. 'video' samples frames from --video-path via demo_colmap.",
+    )
+    parser.add_argument(
+        "--video-path",
+        type=Path,
+        default=None,
+        help="Video path used when --input-type=video. Can be absolute or relative to --dataset.",
+    )
+    parser.add_argument(
+        "--video-num-frames",
+        type=int,
+        default=None,
+        help="Number of frames to sample when --input-type=video.",
+    )
+    parser.add_argument(
+        "--overwrite-images-from-video",
+        action="store_true",
+        help="Forwarded to demo_colmap.py in video mode. Clear scene_dir/images before writing sampled frames.",
+    )
+    parser.add_argument(
         "--output-scene",
         type=Path,
         default=None,
@@ -128,10 +152,17 @@ def _list_images(folder: Path) -> List[Path]:
     return sorted(images)
 
 
-def resolve_scene_layout(dataset: Path, output_scene: Optional[Path], force: bool) -> Path:
+def resolve_scene_layout(dataset: Path, output_scene: Optional[Path], force: bool, input_type: str) -> Path:
     dataset = dataset.resolve()
     if not dataset.exists():
         raise FileNotFoundError(f"Dataset does not exist: {dataset}")
+    if input_type == "video":
+        scene_dir = output_scene.resolve() if output_scene else dataset.with_name(dataset.name + "_vggt_scene")
+        if scene_dir.exists() and force:
+            shutil.rmtree(scene_dir)
+        scene_dir.mkdir(parents=True, exist_ok=True)
+        (scene_dir / "images").mkdir(parents=True, exist_ok=True)
+        return scene_dir
 
     images_dir = dataset / "images"
     if images_dir.is_dir() and _list_images(images_dir):
@@ -161,7 +192,10 @@ def resolve_scene_layout(dataset: Path, output_scene: Optional[Path], force: boo
     return scene_dir
 
 
-def populate_images(dataset: Path, scene_dir: Path, copy_images: bool) -> None:
+def populate_images(dataset: Path, scene_dir: Path, copy_images: bool, input_type: str) -> None:
+    if input_type == "video":
+        return
+
     target_images = scene_dir / "images"
     if any(target_images.iterdir()):
         return
@@ -205,6 +239,17 @@ def run_vggt_colmap(args: argparse.Namespace, scene_dir: Path) -> None:
         raise FileNotFoundError(f"Cannot find demo_colmap.py at: {demo_script}")
 
     demo_args = ["--scene_dir", str(scene_dir), "--seed", str(args.seed)]
+    demo_args += ["--input_type", args.input_type]
+    if args.input_type == "video":
+        if args.video_path is None:
+            raise ValueError("--video-path is required when --input-type=video")
+        if args.video_num_frames is None:
+            raise ValueError("--video-num-frames is required when --input-type=video")
+        video_path = args.video_path if args.video_path.is_absolute() else (args.dataset / args.video_path)
+        demo_args += ["--video_path", str(video_path.resolve())]
+        demo_args += ["--video_num_frames", str(args.video_num_frames)]
+        if args.overwrite_images_from_video:
+            demo_args += ["--overwrite_images_from_video"]
     if args.checkpoint_path is not None:
         demo_args += ["--checkpoint_path", str(args.checkpoint_path.resolve())]
     if args.tracker_checkpoint_path is not None:
@@ -351,8 +396,8 @@ def main() -> None:
     args = parse_args()
 
     dataset = args.dataset.resolve()
-    scene_dir = resolve_scene_layout(dataset, args.output_scene, args.force)
-    populate_images(dataset, scene_dir, copy_images=args.copy_images)
+    scene_dir = resolve_scene_layout(dataset, args.output_scene, args.force, input_type=args.input_type)
+    populate_images(dataset, scene_dir, copy_images=args.copy_images, input_type=args.input_type)
 
     print(f"Dataset: {dataset}")
     print(f"Prepared scene: {scene_dir}")
