@@ -9,6 +9,7 @@ import numpy as np
 import glob
 import os
 import copy
+import shutil
 import torch
 import torch.nn.functional as F
 
@@ -42,6 +43,31 @@ from vggt.dependency.np_to_pycolmap import batch_np_matrix_to_pycolmap, batch_np
 def parse_args():
     parser = argparse.ArgumentParser(description="VGGT Demo")
     parser.add_argument("--scene_dir", type=str, required=True, help="Directory containing the scene images")
+    parser.add_argument(
+        "--input_type",
+        type=str,
+        choices=["images", "video"],
+        default="images",
+        help="Input source type. 'images': read scene_dir/images directly. 'video': sample frames from --video_path first.",
+    )
+    parser.add_argument(
+        "--video_path",
+        type=str,
+        default=None,
+        help="Video path used when --input_type=video. Frames will be sampled to scene_dir/images before reconstruction.",
+    )
+    parser.add_argument(
+        "--video_num_frames",
+        type=int,
+        default=None,
+        help="Number of frames to sample from --video_path when --input_type=video.",
+    )
+    parser.add_argument(
+        "--overwrite_images_from_video",
+        action="store_true",
+        default=False,
+        help="When using --video_path, clear existing scene_dir/images before writing sampled frames.",
+    )
     parser.add_argument(
         "--checkpoint_path",
         type=str,
@@ -90,6 +116,86 @@ def parse_args():
         help="Input resolution used by VGGT backbone. Lower to reduce memory.",
     )
     return parser.parse_args()
+
+
+def _sample_frame_indices(total_frames: int, target_frames: int | None) -> np.ndarray:
+    if total_frames <= 0:
+        raise ValueError("Video has no readable frames.")
+    if target_frames is None or target_frames >= total_frames:
+        return np.arange(total_frames, dtype=np.int64)
+    if target_frames <= 0:
+        raise ValueError("--video_num_frames must be > 0 when provided.")
+    # Uniformly sample frame indices in [0, total_frames-1]
+    return np.linspace(0, total_frames - 1, target_frames, dtype=np.int64)
+
+
+def extract_frames_from_video(video_path: str, image_dir: str, target_frames: int | None, overwrite: bool = False) -> list[str]:
+    try:
+        import cv2
+    except ImportError as exc:
+        raise ImportError(
+            "OpenCV is required for --video_path but is not installed. Please install opencv-python."
+        ) from exc
+
+    if not os.path.exists(video_path):
+        raise FileNotFoundError(f"Video not found: {video_path}")
+
+    if os.path.exists(image_dir) and overwrite:
+        shutil.rmtree(image_dir)
+    os.makedirs(image_dir, exist_ok=True)
+
+    cap = cv2.VideoCapture(video_path)
+    if not cap.isOpened():
+        raise RuntimeError(f"Failed to open video: {video_path}")
+
+    try:
+        frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        if frame_count <= 0:
+            # Fallback for codecs that do not report CAP_PROP_FRAME_COUNT reliably.
+            frames = []
+            while True:
+                ok, frame = cap.read()
+                if not ok:
+                    break
+                frames.append(frame)
+            if not frames:
+                raise RuntimeError(f"No readable frames from video: {video_path}")
+            indices = _sample_frame_indices(len(frames), target_frames)
+            saved_paths = []
+            for out_idx, frame_idx in enumerate(indices):
+                frame_bgr = frames[int(frame_idx)]
+                out_path = os.path.join(image_dir, f"frame_{out_idx:05d}.png")
+                if not cv2.imwrite(out_path, frame_bgr):
+                    raise RuntimeError(f"Failed to write frame to {out_path}")
+                saved_paths.append(out_path)
+            return saved_paths
+
+        indices = _sample_frame_indices(frame_count, target_frames)
+        wanted = set(indices.tolist())
+        saved_paths = []
+        cur = 0
+        out_idx = 0
+        while True:
+            ok, frame = cap.read()
+            if not ok:
+                break
+            if cur in wanted:
+                out_path = os.path.join(image_dir, f"frame_{out_idx:05d}.png")
+                if not cv2.imwrite(out_path, frame):
+                    raise RuntimeError(f"Failed to write frame to {out_path}")
+                saved_paths.append(out_path)
+                out_idx += 1
+                if out_idx >= len(indices):
+                    break
+            cur += 1
+
+        if len(saved_paths) != len(indices):
+            raise RuntimeError(
+                f"Expected to write {len(indices)} sampled frames, but only wrote {len(saved_paths)}."
+            )
+        return saved_paths
+    finally:
+        cap.release()
 
 
 def run_VGGT(model, images, dtype, resolution=518):
@@ -158,6 +264,24 @@ def demo_fn(args):
 
     # Get image paths and preprocess them
     image_dir = os.path.join(args.scene_dir, "images")
+    if args.input_type == "video":
+        if args.video_path is None:
+            raise ValueError("--video_path is required when --input_type=video")
+        if args.video_num_frames is None:
+            raise ValueError("--video_num_frames is required when --input_type=video")
+        sampled_paths = extract_frames_from_video(
+            video_path=os.path.expanduser(args.video_path),
+            image_dir=image_dir,
+            target_frames=args.video_num_frames,
+            overwrite=args.overwrite_images_from_video,
+        )
+        print(
+            f"Sampled {len(sampled_paths)} frame(s) from video to {image_dir}. "
+            f"Requested frames: {args.video_num_frames}"
+        )
+    elif args.input_type == "images" and args.video_path is not None:
+        print("Warning: --video_path is ignored because --input_type=images")
+
     image_path_list = glob.glob(os.path.join(image_dir, "*"))
     if len(image_path_list) == 0:
         raise ValueError(f"No images found in {image_dir}")
