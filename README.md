@@ -189,6 +189,12 @@ We also support exporting VGGT's predictions directly to COLMAP format, by:
 # Feedforward prediction only
 python demo_colmap.py --scene_dir=/YOUR/SCENE_DIR/ 
 
+# Sample a fixed number of frames from a video into /YOUR/SCENE_DIR/images, then run reconstruction
+python demo_colmap.py --scene_dir=/YOUR/SCENE_DIR/ --video_path=/YOUR/PATH/TO/VIDEO.mp4 --video_num_frames=30
+
+# If /YOUR/SCENE_DIR/images already has files and you want to replace them with sampled video frames
+python demo_colmap.py --scene_dir=/YOUR/SCENE_DIR/ --video_path=/YOUR/PATH/TO/VIDEO.mp4 --video_num_frames=30 --overwrite_images_from_video
+
 # With bundle adjustment
 python demo_colmap.py --scene_dir=/YOUR/SCENE_DIR/ --use_ba
 
@@ -200,6 +206,7 @@ python demo_colmap.py --scene_dir=/YOUR/SCENE_DIR/ --use_ba --max_query_pts=2048
 ```
 
 Please ensure that the images are stored in `/YOUR/SCENE_DIR/images/`. This folder should contain only the images. Check the examples folder for the desired data structure. 
+If `--video_path` is provided, `demo_colmap.py` can automatically sample frames into this folder before running VGGT.
 
 The reconstruction result (camera parameters and 3D points) will be automatically saved under `/YOUR/SCENE_DIR/sparse/` in the COLMAP format, such as:
 
